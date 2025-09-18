@@ -1,0 +1,20 @@
+[
+  {
+    "name": "ข้าวผัด",
+    "foodname": "fried rice",
+    "price": 50,
+    "image": "images/fried_rice.jpg"
+  },
+  {
+    "name": "ก๋วยเตี๋ยว",
+    "foodname": "noodle",
+    "price": 60,
+    "image": "images/noodle.jpg"
+  },
+  {
+    "name": "ผัดไทย",
+    "foodname": "padthai",
+    "price": 60,
+    "image": "images/padthai.jpg"
+  }
+]
