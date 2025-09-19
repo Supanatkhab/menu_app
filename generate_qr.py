@@ -1,7 +1,7 @@
 import qrcode
 
 # เปลี่ยนเป็นลิงก์เว็บของคุณหลัง deploy
-url = "https://your-streamlit-app-url.com"
+url = "https://midwinter.streamlit.app"
 
 qr = qrcode.make(url)
 qr.save("qr.png")

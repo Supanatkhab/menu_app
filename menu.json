@@ -1,19 +1,17 @@
 [
   {
-    "name": "ข้าวผัด",
-    "foodname": "fried rice",
+    "name": "ข้าวผัด/Fried rice",
+  
     "price": 50,
     "image": "images/fried_rice.jpg"
   },
   {
-    "name": "ก๋วยเตี๋ยว",
-    "foodname": "noodle",
+    "name": "ก๋วยเตี๋ยว/Noodle",
     "price": 60,
     "image": "images/noodle.jpg"
   },
   {
-    "name": "ผัดไทย",
-    "foodname": "padthai",
+    "name": "ผัดไทย/Padthai",
     "price": 60,
     "image": "images/padthai.jpg"
   }

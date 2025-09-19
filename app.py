@@ -1,30 +1,90 @@
 import streamlit as st
 import json
 from PIL import Image
+import base64
+from io import BytesIO
 
-# โหลดข้อมูลเมนู
+# โหลดข้อมูลจาก JSON
 with open("menu.json", "r", encoding="utf-8") as f:
     menu = json.load(f)
 
-st.set_page_config(page_title="เมนูอาหาร", layout="wide")
+# ฟังก์ชันสำหรับแปลงรูปภาพเป็น base64
+def img_to_base64(img):
+    buffered = BytesIO()
+    img.save(buffered, format="JPEG")
+    return base64.b64encode(buffered.getvalue()).decode()
 
-# หัวข้ออยู่ตรงกลาง
-st.markdown("<h1 style='text-align: center;'>🍽️ เมนูอาหาร</h1>", unsafe_allow_html=True)
+# หัวข้อหลัก
+st.markdown("<h1 style='text-align: center;'>🍽️ เมนูอาหาร / Menu</h1>", unsafe_allow_html=True)
+st.markdown("<h3 style='text-align: center;'>ร้าน Midwinter Khaoyai</h3>", unsafe_allow_html=True)
 
-# ฟังก์ชันปรับขนาดภาพ
-def resize_image(image_path, size=(300, 200)):
-    img = Image.open(image_path)
-    img = img.resize(size)
-    return img
+# CSS สำหรับรูปแบบการ์ด
+st.markdown("""
+<style>
+.menu-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background-color: #262730;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+}
+.menu-card-reverse {
+    flex-direction: row-reverse;
+}
+.menu-card img {
+    width: 300px;
+    height: 200px;
+    object-fit: cover;
+    border-radius: 8px;
+}
+.menu-card-text {
+    flex: 1;
+    padding: 0 20px;
+    text-align: center;
+}
+.menu-card-text p {
+    margin: 0;
+    line-height: 1.5;
+}
+/* CSS สำหรับชื่ออาหารโดยเฉพาะ */
+.food-name {
+    font-size: 28px !important; /* เพิ่ม !important ตรงนี้ */
+    font-weight: bold;
+    color: #F8F9FA;
+    margin-bottom: 5px;
+}
+.price {
+    font-size: 20px !important; /* เพิ่ม !important ตรงนี้ */
+    color: #F8F9FA;
+    margin-bottom: 5px;
+}
+</style>
+""", unsafe_allow_html=True)
 
-# แสดงเมนูแบบ Grid Responsive
-cols = st.columns(3)
-
+# แสดงเมนูอาหาร
 for i, item in enumerate(menu):
-    with cols[i % 3]:
-        img = resize_image(item["image"])
-        st.image(img, use_container_width=False)
-        st.markdown(f"**ชื่ออาหาร:** {item['name']}")
-        st.markdown(f"**ราคา:** {item['price']} บาท")
-        st.markdown(f"foodname: {item['foodname']}")
-        st.markdown(f"price: {item['price']} ฿")
+    # โหลดรูปภาพ
+    img = Image.open(item["image"])
+    img_base64 = img_to_base64(img)
+
+    # กำหนด class สำหรับการสลับซ้าย-ขวา
+    card_class = "menu-card"
+    if i % 2 != 0:
+        card_class += " menu-card-reverse"
+
+    # สร้าง HTML สำหรับการ์ดเมนู
+    html_content = f"""
+    <div class="{card_class}">
+        <img src="data:image/jpeg;base64,{img_base64}" />
+        <div class="menu-card-text">
+            <p class="food-name">{item['name']}</p>
+            <p class="price"><i>price:</i> {item['price']} ฿</p>
+        </div>
+    </div>
+    """
+    st.markdown(html_content, unsafe_allow_html=True)
+
+st.markdown("---")
