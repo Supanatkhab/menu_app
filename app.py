@@ -1,74 +1,47 @@
 import streamlit as st
-import json
-import sqlite3
 import pandas as pd
-import uuid
+from supabase import create_client, Client
 from io import BytesIO
 import base64
 from PIL import Image
-import os
 
 # --- Configuration ---
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "password123"
 
-# --- Database Management ---
-# Use the same path as configured in .streamlit/config.toml
-DB_PATH = "/data/my_menu_app/menu.db"
+# --- Supabase Client ---
+@st.cache_resource
+def init_connection():
+    url = st.secrets["supabase"]["SUPABASE_URL"]
+    key = st.secrets["supabase"]["SUPABASE_KEY"]
+    return create_client(url, key)
 
-def init_db():
-    """สร้างฐานข้อมูลและตารางถ้ายังไม่มี"""
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS menu (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            price REAL NOT NULL,
-            image_data TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
+supabase = init_connection()
 
-# Ensure the database and table are created on every app start
-init_db()
-
+# --- Functions for Database Management with Supabase ---
 def load_menu_data_from_db():
-    """โหลดข้อมูลทั้งหมดจากฐานข้อมูล"""
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT * FROM menu", conn)
-    conn.close()
+    """Load all data from Supabase"""
+    response = supabase.from_('menu').select('*').order('id', desc=False).execute()
+    df = pd.DataFrame(response.data)
     return df
 
 def add_menu_item_to_db(name, price, image_data):
-    """เพิ่มรายการใหม่ลงในฐานข้อมูล"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO menu (name, price, image_data) VALUES (?, ?, ?)", (name, price, image_data))
-    conn.commit()
-    conn.close()
+    """Add a new item to Supabase"""
+    data = {'name': name, 'price': price, 'image_data': image_data}
+    supabase.from_('menu').insert(data).execute()
 
 def update_menu_item_in_db(id, name, price, image_data):
-    """แก้ไขรายการในฐานข้อมูล"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE menu SET name=?, price=?, image_data=? WHERE id=?", (name, price, image_data, id))
-    conn.commit()
-    conn.close()
+    """Update an item in Supabase"""
+    data = {'name': name, 'price': price, 'image_data': image_data}
+    supabase.from_('menu').update(data).eq('id', id).execute()
 
 def delete_menu_item_from_db(id):
-    """ลบรายการออกจากฐานข้อมูล"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM menu WHERE id=?", (id,))
-    conn.commit()
-    conn.close()
+    """Delete an item from Supabase"""
+    supabase.from_('menu').delete().eq('id', id).execute()
 
 # --- App Pages ---
 def show_login_page():
-    """แสดงหน้าฟอร์มล็อกอินสำหรับผู้ดูแลระบบ"""
+    """Display login form for admin"""
     st.sidebar.markdown("### เข้าสู่ระบบผู้ดูแล")
     with st.sidebar.form("login_form"):
         username = st.text_input("ชื่อผู้ใช้")
@@ -83,7 +56,7 @@ def show_login_page():
                 st.error("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
 
 def show_admin_page():
-    """แสดงหน้าจัดการรายการอาหารสำหรับผู้ดูแลระบบ"""
+    """Display admin management page"""
     st.markdown("<h1 style='text-align: center;'>หน้าจัดการรายการอาหาร (หลังบ้าน)</h1>", unsafe_allow_html=True)
     st.markdown("---")
 
@@ -123,14 +96,11 @@ def show_admin_page():
             st.info("ไม่พบรายการอาหารในฐานข้อมูล")
             return
         
-        # Select item from dropdown
         item_names = df_menu['name'].tolist()
         selected_name = st.selectbox("เลือกรหัส/ชื่ออาหารที่ต้องการแก้ไข", item_names)
         
-        # Get data for the selected item
         selected_item = df_menu[df_menu['name'] == selected_name].iloc[0]
 
-        # Display form for editing
         with st.form("edit_delete_form"):
             st.text_input("ชื่ออาหาร", value=selected_item['name'], key="edit_name")
             st.number_input("ราคา", value=selected_item['price'], key="edit_price")
@@ -158,13 +128,12 @@ def show_admin_page():
                     st.success("ลบรายการสำเร็จแล้ว!")
                     st.rerun()
         
-        # Display current image
         st.markdown("---")
         st.subheader("รูปภาพปัจจุบัน")
         st.image(selected_item['image_data'], width=200)
 
 def show_menu_page():
-    """แสดงหน้าเมนูอาหารสำหรับลูกค้า"""
+    """Display menu page for customers"""
     st.markdown("""
     <style>
     .menu-card {
