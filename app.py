@@ -6,11 +6,20 @@ import uuid
 from io import BytesIO
 import base64
 from PIL import Image
+import os
 
-# --- Initializing the database on app start ---
+# --- Configuration ---
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "password123"
+
+# --- Database Management ---
+# Use the same path as configured in .streamlit/config.toml
+DB_PATH = "/data/my_menu_app/menu.db"
+
 def init_db():
     """สร้างฐานข้อมูลและตารางถ้ายังไม่มี"""
-    conn = sqlite3.connect("menu.db")
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS menu (
@@ -26,17 +35,16 @@ def init_db():
 # Ensure the database and table are created on every app start
 init_db()
 
-# --- Functions for Database Management ---
 def load_menu_data_from_db():
     """โหลดข้อมูลทั้งหมดจากฐานข้อมูล"""
-    conn = sqlite3.connect("menu.db")
+    conn = sqlite3.connect(DB_PATH)
     df = pd.read_sql_query("SELECT * FROM menu", conn)
     conn.close()
     return df
 
 def add_menu_item_to_db(name, price, image_data):
     """เพิ่มรายการใหม่ลงในฐานข้อมูล"""
-    conn = sqlite3.connect("menu.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("INSERT INTO menu (name, price, image_data) VALUES (?, ?, ?)", (name, price, image_data))
     conn.commit()
@@ -44,7 +52,7 @@ def add_menu_item_to_db(name, price, image_data):
 
 def update_menu_item_in_db(id, name, price, image_data):
     """แก้ไขรายการในฐานข้อมูล"""
-    conn = sqlite3.connect("menu.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("UPDATE menu SET name=?, price=?, image_data=? WHERE id=?", (name, price, image_data, id))
     conn.commit()
@@ -52,13 +60,13 @@ def update_menu_item_in_db(id, name, price, image_data):
 
 def delete_menu_item_from_db(id):
     """ลบรายการออกจากฐานข้อมูล"""
-    conn = sqlite3.connect("menu.db")
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("DELETE FROM menu WHERE id=?", (id,))
     conn.commit()
     conn.close()
 
-# --- Functions for App Pages ---
+# --- App Pages ---
 def show_login_page():
     """แสดงหน้าฟอร์มล็อกอินสำหรับผู้ดูแลระบบ"""
     st.sidebar.markdown("### เข้าสู่ระบบผู้ดูแล")
@@ -155,7 +163,6 @@ def show_admin_page():
         st.subheader("รูปภาพปัจจุบัน")
         st.image(selected_item['image_data'], width=200)
 
-
 def show_menu_page():
     """แสดงหน้าเมนูอาหารสำหรับลูกค้า"""
     st.markdown("""
@@ -242,9 +249,6 @@ def show_menu_page():
 # --- Main App Logic ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
-
-ADMIN_USERNAME = "admin"
-ADMIN_PASSWORD = "password123"
 
 st.sidebar.title("ควบคุมระบบ")
 page_options = {

@@ -1,0 +1,5 @@
+[server]
+enableCORS = false
+
+[persistence]
+fileStorage = "/data/my_menu_app/menu.db"
