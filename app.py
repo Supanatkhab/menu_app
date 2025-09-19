@@ -57,26 +57,21 @@ st.markdown("""
     margin-bottom: 5px;
 }
 
-/* --- Media Queries สำหรับหน้าจอมือถือ --- */
+/* --- Media Queries สำหรับหน้าจอมือถือ (ปรับขนาดเพื่อไม่ให้บีบ) --- */
 @media (max-width: 600px) {
     .menu-card {
-        flex-wrap: wrap; /* ทำให้เนื้อหาขึ้นบรรทัดใหม่ได้ */
         padding: 10px;
-        justify-content: center; /* จัดให้อยู่กึ่งกลาง */
-    }
-    .menu-card-reverse {
-        flex-direction: row; /* ยกเลิกการสลับซ้าย-ขวาบนมือถือ */
+        gap: 10px; /* ลดระยะห่างระหว่างองค์ประกอบ */
     }
     .menu-card img {
-        width: 150px; /* ลดขนาดรูปภาพลง */
-        height: 100px;
-        margin-bottom: 10px;
+        width: 150px; /* ลดความกว้างรูปภาพ */
+        height: 100px; /* ลดความสูงรูปภาพ */
     }
     .menu-card-text {
-        padding: 0;
+        padding: 0 5px; /* ลด padding */
     }
     .food-name {
-        font-size: 18px !important; /* ลดขนาดตัวอักษรชื่ออาหาร */
+        font-size: 16px !important; /* ลดขนาดตัวอักษรชื่ออาหาร */
     }
 }
 </style>
