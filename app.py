@@ -51,30 +51,32 @@ st.markdown("""
     line-height: 1.5;
 }
 .food-name {
-    font-size: 28px !important; /* เพิ่ม !important ตรงนี้ */
+    font-size: 24px !important;
     font-weight: bold;
-    color: #F8F9FA;
-    margin-bottom: 5px;
-}
-.price {
-    font-size: 20px !important; /* เพิ่ม !important ตรงนี้ */
     color: #F8F9FA;
     margin-bottom: 5px;
 }
 
 /* --- Media Queries สำหรับหน้าจอมือถือ --- */
 @media (max-width: 600px) {
-    .menu-card, .menu-card-reverse {
-        flex-direction: column; /* เปลี่ยนเป็นแนวตั้ง */
-        text-align: center; /* จัดข้อความกึ่งกลาง */
+    .menu-card {
+        flex-wrap: wrap; /* ทำให้เนื้อหาขึ้นบรรทัดใหม่ได้ */
+        padding: 10px;
+        justify-content: center; /* จัดให้อยู่กึ่งกลาง */
+    }
+    .menu-card-reverse {
+        flex-direction: row; /* ยกเลิกการสลับซ้าย-ขวาบนมือถือ */
     }
     .menu-card img {
-        width: 100%; /* ทำให้รูปภาพเต็มความกว้างของหน้าจอ */
-        height: auto; /* รักษาอัตราส่วน */
-        margin-bottom: 15px; /* เพิ่มระยะห่างด้านล่างรูปภาพ */
+        width: 150px; /* ลดขนาดรูปภาพลง */
+        height: 100px;
+        margin-bottom: 10px;
     }
     .menu-card-text {
         padding: 0;
+    }
+    .food-name {
+        font-size: 18px !important; /* ลดขนาดตัวอักษรชื่ออาหาร */
     }
 }
 </style>
@@ -94,7 +96,7 @@ for i, item in enumerate(menu):
         <img src="data:image/jpeg;base64,{img_base64}" />
         <div class="menu-card-text">
             <p class="food-name">{item['name']}</p>
-            <p class="price "><i>price:</i> {item['price']} ฿</p>
+            <p><i>price:</i> {item['price']} ฿</p>
         </div>
     </div>
     """
