@@ -4,39 +4,85 @@ from supabase import create_client, Client
 from io import BytesIO
 import base64
 from PIL import Image
+import uuid
+import os
 
 # --- Configuration ---
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "password123"
+# ตั้งชื่อ bucket ที่คุณสร้างใน Supabase Storage
+BUCKET_NAME = "menu_images" 
 
 # --- Supabase Client ---
 @st.cache_resource
 def init_connection():
-    url = st.secrets["supabase"]["SUPABASE_URL"]
-    key = st.secrets["supabase"]["SUPABASE_KEY"]
-    return create_client(url, key)
+    try:
+        url = st.secrets["supabase"]["SUPABASE_URL"]
+        key = st.secrets["supabase"]["SUPABASE_KEY"]
+        return create_client(url, key)
+    except KeyError as e:
+        st.error(f"Error: Missing Supabase secrets. Please check your secrets.toml file or Streamlit Cloud settings. Details: {e}")
+        st.stop()
 
 supabase = init_connection()
 
-# --- Functions for Database Management with Supabase ---
+# --- Functions for Database and Storage Management ---
 def load_menu_data_from_db():
     """Load all data from Supabase"""
     response = supabase.from_('menu').select('*').order('id', desc=False).execute()
     df = pd.DataFrame(response.data)
     return df
 
-def add_menu_item_to_db(name, price, image_data):
+def upload_image_to_storage(uploaded_file):
+    """Uploads an image file to Supabase Storage and returns its URL"""
+    try:
+        # สร้างชื่อไฟล์ที่ไม่ซ้ำกันด้วย UUID
+        file_extension = os.path.splitext(uploaded_file.name)[1]
+        file_name = f"{uuid.uuid4()}{file_extension}"
+        
+        # อ่านข้อมูลดิบ (bytes) ของไฟล์
+        file_bytes = uploaded_file.getvalue()
+
+        # อัปโหลดไฟล์โดยใช้ข้อมูลดิบ
+        # แก้ไขการตรวจสอบ status_code ตามคำแนะนำล่าสุด
+        supabase.storage.from_(BUCKET_NAME).upload(file_name, file_bytes)
+
+        # ถ้ารันมาถึงตรงนี้ได้ แปลว่าอัปโหลดสำเร็จแล้ว
+        return supabase.storage.from_(BUCKET_NAME).get_public_url(file_name)
+    except Exception as e:
+        # ถ้าเกิดข้อผิดพลาดในการอัปโหลด จะถูกจับโดย except block นี้
+        st.error(f"เกิดข้อผิดพลาดในการอัปโหลดรูปภาพ: {e}")
+        return None
+
+def remove_image_from_storage(image_url):
+    """Removes an image from Supabase Storage using its URL"""
+    try:
+        # ดึงชื่อไฟล์จาก URL
+        file_name = image_url.split(f"/{BUCKET_NAME}/")[1]
+        supabase.storage.from_(BUCKET_NAME).remove([file_name])
+    except Exception as e:
+        st.error(f"ไม่สามารถลบไฟล์รูปภาพได้: {e}")
+
+def add_menu_item_to_db(name, price, image_url):
     """Add a new item to Supabase"""
-    data = {'name': name, 'price': price, 'image_data': image_data}
+    data = {'name': name, 'price': price, 'image_url': image_url}
     supabase.from_('menu').insert(data).execute()
 
-def update_menu_item_in_db(id, name, price, image_data):
+def update_menu_item_in_db(id, name, price, new_image_url, old_image_url):
     """Update an item in Supabase"""
-    data = {'name': name, 'price': price, 'image_data': image_data}
+    data = {'name': name, 'price': price, 'image_url': new_image_url}
+    
+    # ลบรูปภาพเก่าถ้ามีการอัปโหลดรูปภาพใหม่
+    if new_image_url and old_image_url and new_image_url != old_image_url:
+        remove_image_from_storage(old_image_url)
+
     supabase.from_('menu').update(data).eq('id', id).execute()
 
-def delete_menu_item_from_db(id):
-    """Delete an item from Supabase"""
+def delete_menu_item_from_db(id, image_url):
+    """Delete an item from Supabase and its corresponding image"""
+    # ลบรูปภาพจาก storage ก่อน
+    remove_image_from_storage(image_url)
+    # แล้วจึงลบข้อมูลในฐานข้อมูล
     supabase.from_('menu').delete().eq('id', id).execute()
 
 # --- App Pages ---
@@ -77,14 +123,11 @@ def show_admin_page():
 
             if submitted:
                 if food_name and price and uploaded_file:
-                    buffered = BytesIO()
-                    image = Image.open(uploaded_file)
-                    image.save(buffered, format="PNG")
-                    img_str = base64.b64encode(buffered.getvalue()).decode()
-                    image_data = f"data:image/png;base64,{img_str}"
-                    add_menu_item_to_db(food_name, price, image_data)
-                    st.success("เพิ่มรายการอาหารใหม่สำเร็จแล้ว!")
-                    st.rerun()
+                    image_url = upload_image_to_storage(uploaded_file)
+                    if image_url:
+                        add_menu_item_to_db(food_name, price, image_url)
+                        st.success("เพิ่มรายการอาหารใหม่สำเร็จแล้ว!")
+                        st.rerun()
                 else:
                     st.error("กรุณากรอกข้อมูลให้ครบถ้วนและอัปโหลดรูปภาพ")
 
@@ -111,26 +154,23 @@ def show_admin_page():
                 if st.form_submit_button("บันทึกการแก้ไข"):
                     updated_name = st.session_state.edit_name
                     updated_price = st.session_state.edit_price
-                    image_data = selected_item['image_data']
+                    image_url = selected_item['image_url']
+                    
                     if uploaded_file:
-                        buffered = BytesIO()
-                        image = Image.open(uploaded_file)
-                        image.save(buffered, format="PNG")
-                        img_str = base64.b64encode(buffered.getvalue()).decode()
-                        image_data = f"data:image/png;base64,{img_str}"
-
-                    update_menu_item_in_db(selected_item['id'], updated_name, updated_price, image_data)
+                        image_url = upload_image_to_storage(uploaded_file)
+                        
+                    update_menu_item_in_db(selected_item['id'], updated_name, updated_price, image_url, selected_item['image_url'])
                     st.success("บันทึกการแก้ไขสำเร็จแล้ว!")
                     st.rerun()
             with col2:
                 if st.form_submit_button("ลบรายการนี้"):
-                    delete_menu_item_from_db(selected_item['id'])
+                    delete_menu_item_from_db(selected_item['id'], selected_item['image_url'])
                     st.success("ลบรายการสำเร็จแล้ว!")
                     st.rerun()
         
         st.markdown("---")
         st.subheader("รูปภาพปัจจุบัน")
-        st.image(selected_item['image_data'], width=200)
+        st.image(selected_item['image_url'], width=200)
 
 def show_menu_page():
     """Display menu page for customers"""
@@ -205,7 +245,7 @@ def show_menu_page():
 
         html_content = f"""
         <div class="{card_class}">
-            <img src="{row['image_data']}" />
+            <img src="{row['image_url']}" />
             <div class="menu-card-text">
                 <p class="food-name">{row['name']}</p>
                 <p><i>price:</i> {row['price']} ฿</p>
