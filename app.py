@@ -303,9 +303,10 @@ def init_connection():
         st.error(f"Error: Missing Supabase secrets. Please check your secrets.toml file or Streamlit Cloud settings. Details: {e}")
         st.stop()
 
+# เชื่อมต่อฐานข้อมูล
 supabase = init_connection()
 
-# --- Functions for Database and Storage Management ---
+# --- Functions for Database and Storage Management (Admin) ---
 
 def load_menu_data_from_db():
     """Load all data from Supabase"""
@@ -352,7 +353,7 @@ def delete_menu_item_from_db(id, image_url):
     remove_image_from_storage(image_url)
     supabase.from_('menu').delete().eq('id', id).execute()
 
-# --- Functions for Order Management ---
+# --- Functions for Order Management (Customer & Service) ---
 
 def place_order_to_db(table_number, customer_name, cart):
     """Inserts a new order into the 'orders' table."""
@@ -367,19 +368,23 @@ def place_order_to_db(table_number, customer_name, cart):
         'items': order_items,
         'status': 'New Order' 
     }
-    # Supabase (PostgREST) ต้องการ JSON string หาก column เป็น jsonb/json
     data['items'] = json.dumps(data['items']) 
     
     supabase.from_('orders').insert(data).execute()
 
 def load_active_orders():
-    """Load active orders (New Order and In Service) for the Service page."""
+    """Load only orders with 'New Order' and 'In Service' statuses."""
+    # Note: เราจะไม่ดึง 'Completed' แล้ว เนื่องจากจะทำการลบแทน
     response = supabase.from_('orders').select('*').in_('status', ['New Order', 'In Service']).order('created_at', desc=False).execute()
     return response.data
 
 def update_order_status(order_id, new_status):
-    """Updates the status of a specific order."""
+    """Updates the status of a specific order (used for New Order -> In Service)."""
     supabase.from_('orders').update({'status': new_status}).eq('id', order_id).execute()
+
+def delete_order_from_db(order_id):
+    """Deletes an order from the 'orders' table (used for Completed orders)."""
+    supabase.from_('orders').delete().eq('id', order_id).execute()
 
 
 # --- Function for Sidebar Cart (MODAL) ---
@@ -406,7 +411,6 @@ def show_sidebar_cart():
             table_number = st.text_input("เลขที่โต๊ะ", key="table_number_input_side")
             customer_name = st.text_input("ชื่อผู้สั่ง (ไม่บังคับ)", key="customer_name_input_side")
             
-            # ใช้ st.columns ภายใน st.form
             col_submit, col_clear = st.columns(2)
             
             with col_submit:
@@ -417,7 +421,7 @@ def show_sidebar_cart():
                             st.success(f"ส่งออเดอร์เรียบร้อยแล้ว! โต๊ะ {table_number}")
                             st.session_state.cart = {} # Clear cart
                             st.session_state.show_cart_sidebar = False # ปิด Sidebar Modal
-                            time.sleep(1) # หน่วงเวลาให้ข้อความแสดงผลก่อน rerund
+                            time.sleep(1) 
                             st.rerun() 
                         except Exception as e:
                             st.error(f"เกิดข้อผิดพลาดในการส่งออเดอร์: โปรดตรวจสอบ RLS Policy ของตาราง 'orders' ด้วยครับ. ข้อผิดพลาด: {e}")
@@ -432,7 +436,6 @@ def show_sidebar_cart():
     else:
         st.sidebar.info("ตะกร้าสินค้าว่างเปล่า")
     
-    # ปุ่มปิด Modal (Popup)
     if st.sidebar.button("✖️ ปิดตะกร้า", key="close_cart_sidebar"):
         st.session_state.show_cart_sidebar = False
         st.rerun()
@@ -551,7 +554,13 @@ def show_admin_page():
         
         st.markdown("---")
         st.subheader("รูปภาพปัจจุบัน")
-        st.image(selected_item['image_url'], width=200)
+        image_url = selected_item['image_url']
+        st.markdown(
+            f"""
+            <img src="{image_url}" style="width: 200px; height: 150px; object-fit: cover; border-radius: 5px;">
+            """,
+            unsafe_allow_html=True
+        )
 
 def show_service_page():
     """Display the Kitchen Display System (KDS) for staff."""
@@ -587,7 +596,6 @@ def show_service_page():
             
         for i, order in new_orders.iterrows():
             order_id = order['id']
-            # Display Card
             st.markdown(f"**โต๊ะ:** **{order['table_number']}** | **ชื่อผู้สั่ง:** {order['customer_name'] or 'ลูกค้า'}")
             st.caption(f"เวลาสั่ง: {pd.to_datetime(order['created_at']).strftime('%H:%M:%S')}")
             st.markdown("---")
@@ -601,7 +609,6 @@ def show_service_page():
                 item_list += f"- {item['name']} (x{item['quantity']}) \n"
             st.text(item_list)
             
-            # Action Button: กำลังบริการ
             if st.button("▶️ กำลังบริการ (Start Service)", key=f"start_{order_id}"):
                 update_order_status(order_id, 'In Service')
                 st.rerun() 
@@ -617,7 +624,6 @@ def show_service_page():
 
         for i, order in in_service_orders.iterrows():
             order_id = order['id']
-            # Display Card
             st.markdown(f"**โต๊ะ:** **{order['table_number']}** | **ชื่อผู้สั่ง:** {order['customer_name'] or 'ลูกค้า'}")
             st.caption(f"เวลาสั่ง: {pd.to_datetime(order['created_at']).strftime('%H:%M:%S')}")
             st.markdown("---")
@@ -631,10 +637,13 @@ def show_service_page():
                 item_list += f"- {item['name']} (x{item['quantity']}) \n"
             st.text(item_list)
             
-            # Action Button: เสร็จสิ้น
-            if st.button("✅ เสร็จสิ้น (Mark as Completed)", key=f"complete_{order_id}"):
-                update_order_status(order_id, 'Completed')
+            # <<< แก้ไข: ลบรายการออกจากฐานข้อมูลเมื่อกด "เสร็จสิ้น" >>>
+            if st.button("✅ เสร็จสิ้น (Complete & Delete)", key=f"complete_{order_id}"):
+                # 1. ลบรายการออกจากฐานข้อมูล
+                delete_order_from_db(order_id)
+                # 2. รีเฟรชหน้า
                 st.rerun() 
+            # <<< จบการแก้ไข >>>
             st.markdown("---")
 
 def show_menu_page():
@@ -652,7 +661,6 @@ def show_menu_page():
     col_cart_button, col_title = st.columns([1, 4])
     
     with col_cart_button:
-        # ปุ่มกดเพื่อเปิด Sidebar Modal/Popup
         if st.button(button_label, key="open_cart_modal"):
             st.session_state.show_cart_sidebar = True
             st.rerun()
@@ -686,20 +694,24 @@ def show_menu_page():
         col_img, col_text, col_order = st.columns([1, 2, 1])
         
         with col_img:
-            st.image(row['image_url'], width=150)
+            image_url = row['image_url']
+            st.markdown(
+                f"""
+                <img src="{image_url}" style="width: 150px; height: 100px; object-fit: cover; border-radius: 5px;">
+                """,
+                unsafe_allow_html=True
+            )
         
         with col_text:
             st.markdown(f"<p class='food-name'>{row['name']}</p>", unsafe_allow_html=True)
             st.write(f"ราคา: **{row['price']}** ฿")
             
         with col_order:
-            # ใช้ st.number_input สำหรับเลือกจำนวนสินค้า
             current_quantity = st.session_state.cart.get(menu_id, {}).get('quantity', 0)
             quantity_key = f"qty_{menu_id}_{selected_category}"
             
             quantity = st.number_input("จำนวน:", min_value=0, value=current_quantity, step=1, key=quantity_key, label_visibility="collapsed")
             
-            # Logic to update cart on change
             if quantity != current_quantity:
                 if quantity > 0:
                     st.session_state.cart[menu_id] = {
@@ -710,7 +722,10 @@ def show_menu_page():
                     }
                 elif quantity == 0 and menu_id in st.session_state.cart:
                     del st.session_state.cart[menu_id]
-                st.rerun() 
+                st.rerun()
+        
+        # เพิ่มเส้นแบ่งและช่องว่าง
+        st.divider() 
 
 
 # --- Main App Logic ---
@@ -735,15 +750,11 @@ page_options = {
 
 # 2. แสดงผลใน Sidebar: เลือกแสดง 'ตะกร้าสินค้า' หรือ 'เมนูนำทาง'
 if st.session_state.show_cart_sidebar:
-    # หากตะกร้าสินค้าแสดงอยู่
     show_sidebar_cart()
-    # กำหนดให้หน้าหลักเป็น หน้าเมนู เสมอ
     page = "หน้าเมนู (ลูกค้า)"
 else:
-    # หากแสดงเมนูนำทางปกติ
     st.sidebar.title("ควบคุมระบบ")
     st.sidebar.markdown("---")
-    # ตัวแปร 'page' จะถูกกำหนดค่าที่นี่
     page = st.sidebar.radio("เลือกหน้า", list(page_options.keys()), index=0) 
 
 
@@ -761,5 +772,4 @@ elif page == "หน้าบริการ (Service)":
         show_service_page()
 
 else:
-    # สำหรับ "หน้าเมนู (ลูกค้า)" (รวมถึงกรณีที่เปิด Sidebar Cart)
     show_menu_page()
