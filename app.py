@@ -294,19 +294,24 @@ CATEGORIES = ["อาหาร", "เครื่องดื่ม", "ขนม
 # --- Supabase Client ---
 @st.cache_resource
 def init_connection():
-    """Initializes and caches the Supabase connection."""
+    """Initializes and caches the Supabase connection using Environment Variables (Render) or st.secrets (Streamlit Cloud)."""
     try:
-        # NOTE: Using os.getenv for Render Deployment, Fallback to st.secrets for Streamlit Cloud
+        # 1. Try reading from Environment Variables (Recommended for Render)
         url = os.getenv("SUPABASE_URL") 
         key = os.getenv("SUPABASE_KEY")
         
+        # 2. Fallback to st.secrets (for Streamlit Cloud or local testing with secrets.toml)
         if not url or not key:
             url = st.secrets["supabase"]["SUPABASE_URL"]
             key = st.secrets["supabase"]["SUPABASE_KEY"]
 
+        if not url or not key:
+             st.error("Error: Missing SUPABASE_URL or SUPABASE_KEY. Please set Environment Variables on Render or in secrets.toml.")
+             st.stop()
+
         return create_client(url, key)
     except KeyError as e:
-        st.error(f"Error: Missing Supabase secrets. Please check your secrets.toml file or Environment Variables. Details: {e}")
+        st.error(f"Error: Missing Supabase secrets. Details: {e}")
         st.stop()
 
 # เชื่อมต่อฐานข้อมูล
@@ -319,7 +324,6 @@ if "admin_logged_in" not in st.session_state:
 if "service_logged_in" not in st.session_state:
     st.session_state.service_logged_in = False
     
-# *** เปลี่ยนจาก show_cart_sidebar เป็น show_cart_modal ***
 if "show_cart_modal" not in st.session_state:
     st.session_state.show_cart_modal = False
     
@@ -336,7 +340,7 @@ def close_cart_modal():
 def clear_cart():
     st.session_state.cart = {}
 
-# --- Database and Storage Functions (ย่อไว้, ใช้ของเดิม) ---
+# --- Database and Storage Functions (ย่อไว้, ใช้โค้ดเดิม) ---
 
 def load_menu_data_from_db():
     @st.cache_data(ttl=10)
@@ -401,8 +405,8 @@ def update_order_status(order_id, new_status):
 def delete_order_from_db(order_id):
     supabase.from_('orders').delete().eq('id', order_id).execute()
 
+
 # --- Functions for Admin/Service Login ---
-# (ใช้ของเดิมใน Sidebar)
 def show_login_page():
     st.sidebar.markdown("### เข้าสู่ระบบผู้ดูแล")
     with st.sidebar.form("admin_login_form"):
@@ -430,7 +434,7 @@ def show_service_login():
                 st.error("ชื่อผู้ใช้หรือรหัสผ่านบริการไม่ถูกต้อง")
 
 
-# --- NEW: Cart Modal/Popup Function (Non-external library) ---
+# --- NEW: Cart Modal/Popup Function (Native Streamlit Container) ---
 
 def display_cart_modal():
     """Renders the shopping cart content in a simulated modal container."""
@@ -472,7 +476,7 @@ def display_cart_modal():
                 label_visibility="collapsed",
             )
         
-        # Update cart immediately on change (using session state key from number_input)
+        # Update cart immediately on change 
         if new_qty != item['quantity']:
             if new_qty <= 0:
                 del st.session_state.cart[menu_id]
@@ -526,11 +530,9 @@ def display_cart_modal():
                 except Exception as e:
                     st.error(f"เกิดข้อผิดพลาดในการบันทึกคำสั่งซื้อ: {e}")
 
-# --- App Pages (Admin, Service, Menu) ---
-# (ใช้โค้ดของเดิม แต่ปรับให้เข้ากับโครงสร้างหลักใหม่)
+# --- App Pages ---
 
 def show_admin_page():
-    # ... (เนื้อหาหน้า Admin เดิม) ...
     st.markdown("<h1 style='text-align: center;'>หน้าจัดการรายการอาหาร (หลังบ้าน)</h1>", unsafe_allow_html=True)
     st.markdown("---")
 
@@ -620,7 +622,6 @@ def show_admin_page():
             )
 
 def show_service_page():
-    # ... (เนื้อหาหน้า Service/KDS เดิม) ...
     st.markdown("<h1 style='text-align: center;'>👩‍🍳 หน้าบริการ (KDS)</h1>", unsafe_allow_html=True)
     st.markdown("---")
     
@@ -739,27 +740,39 @@ def show_menu_page():
     for i, row in df_filtered.iterrows():
         menu_id = row['id']
         
-        col_img, col_text, col_order = st.columns([1, 2, 1])
+        # *** โครงสร้าง Layout ใหม่สำหรับมือถือ: [รูปภาพ (1)] | [ชื่อ/ราคา (2.5)] | [จำนวน/ปุ่ม (1.5)] ***
+        col_img, col_text, col_order = st.columns([1, 2.5, 1.5])
         
         with col_img:
             image_url = row['image_url']
+            # ใช้ HTML/Markdown เพื่อควบคุมขนาดรูปภาพให้พอดี
             st.markdown(
                 f"""
-                <img src="{image_url}" style="width: 150px; height: 100px; object-fit: cover; border-radius: 5px;">
+                <img src="{image_url}" style="width: 80px; height: 80px; object-fit: cover; border-radius: 5px; margin-top: 10px;">
                 """,
                 unsafe_allow_html=True
             )
         
         with col_text:
-            st.markdown(f"<p class='food-name'>{row['name']}</p>", unsafe_allow_html=True)
+            # ใช้ Markdown เพื่อจัดให้ชิดด้านบน
+            st.markdown(f"**{row['name']}**")
             st.write(f"ราคา: **{row['price']}** ฿")
             
         with col_order:
             current_quantity = st.session_state.cart.get(menu_id, {}).get('quantity', 0)
             quantity_key = f"qty_{menu_id}_{selected_category}"
             
-            quantity = st.number_input("จำนวน:", min_value=0, value=current_quantity, step=1, key=quantity_key, label_visibility="collapsed")
+            # Number Input (จำนวน)
+            quantity = st.number_input(
+                "จำนวน:", 
+                min_value=0, 
+                value=current_quantity, 
+                step=1, 
+                key=quantity_key, 
+                label_visibility="collapsed" # ซ่อน Label
+            )
             
+            # จัดการ Session State เมื่อจำนวนเปลี่ยน
             if quantity != current_quantity:
                 if quantity > 0:
                     st.session_state.cart[menu_id] = {
@@ -812,35 +825,35 @@ if st.session_state.show_cart_modal:
     # เพิ่ม CSS เพื่อทำให้ Container มีลักษณะเป็น Modal
     st.markdown("""
     <style>
-    .modal-overlay {
+    /* ซ่อนเนื้อหาหลักเมื่อ Modal เปิด เพื่อให้ Modal ดูโดดเด่น */
+    /* การซ่อนทำได้ยากใน Streamlit โดยไม่ใช้ Component ภายนอก เราจึงใช้ Container */
+    
+    .modal-container {
         position: fixed; 
-        top: 0; 
-        left: 0; 
-        width: 100%; 
-        height: 100%; 
-        background-color: rgba(0, 0, 0, 0.5); 
-        z-index: 9999; 
-        display: flex; 
-        justify-content: center; 
-        align-items: center;
-    }
-    .st-emotion-cache-1r7r3e2, .st-emotion-cache-1r650bd { /* Target container inside empty */
+        top: 50%; 
+        left: 50%; 
+        transform: translate(-50%, -50%); 
         max-width: 600px;
-        min-width: 300px;
-        margin: auto;
+        min-width: 80%; /* สำหรับมือถือ */
         padding: 20px;
         border-radius: 10px;
-        background-color: white; /* Important to set background */
-        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-        z-index: 10000;
+        background-color: white; 
+        box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+        z-index: 9999; 
+        max-height: 90vh; /* จำกัดความสูงของ Modal */
         overflow-y: auto;
+    }
+    
+    /* สไตล์สำหรับพื้นหลังทึบ (Overlay) */
+    .st-emotion-cache-18ni7ap { /* target the main app container for overlay */
+        pointer-events: none; /* Disable interaction with background */
     }
     </style>
     """, unsafe_allow_html=True)
     
-    # วาด Modal ใน Placeholder โดยจำกัดขนาด Container ให้ดูเหมือน Modal
-    with modal_placeholder.container(): 
-        # ใช้มาร์คดาวน์เพื่อจำลองพื้นหลัง (ทำงานได้ดีกว่าถ้าใช้ st.empty() ข้างนอก)
-        # เนื่องจาก Streamlit ไม่อนุญาตให้ใช้ st.empty() ซ้อนกันมากนัก เราจะใช้ Container ที่มี Border แทน
-        with st.container(border=True): 
-            display_cart_modal()
+    # วาด Modal ใน Placeholder โดยใช้ Container
+    with modal_placeholder.container():
+        # ใช้มาร์คดาวน์เพื่อสร้าง Container ที่มีสไตล์ Modal
+        st.markdown('<div class="modal-container">', unsafe_allow_html=True)
+        display_cart_modal()
+        st.markdown('</div>', unsafe_allow_html=True)
