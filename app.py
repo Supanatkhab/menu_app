@@ -294,24 +294,21 @@ CATEGORIES = ["อาหาร", "เครื่องดื่ม", "ขนม
 # --- Supabase Client ---
 @st.cache_resource
 def init_connection():
-    """Initializes and caches the Supabase connection using Environment Variables (Render) or st.secrets (Streamlit Cloud)."""
+    """Initializes and caches the Supabase connection."""
     try:
-        # 1. Try reading from Environment Variables (Recommended for Render)
         url = os.getenv("SUPABASE_URL") 
         key = os.getenv("SUPABASE_KEY")
         
-        # 2. Fallback to st.secrets (for Streamlit Cloud or local testing with secrets.toml)
         if not url or not key:
             url = st.secrets["supabase"]["SUPABASE_URL"]
             key = st.secrets["supabase"]["SUPABASE_KEY"]
 
-        if not url or not key:
-             st.error("Error: Missing SUPABASE_URL or SUPABASE_KEY. Please set Environment Variables on Render or in secrets.toml.")
-             st.stop()
-
         return create_client(url, key)
     except KeyError as e:
-        st.error(f"Error: Missing Supabase secrets. Details: {e}")
+        st.error(f"Error: Missing Supabase secrets. Please check your secrets.toml file or Environment Variables. Details: {e}")
+        st.stop()
+    except Exception as e:
+        st.error(f"Error: Failed to initialize Supabase connection. Details: {e}")
         st.stop()
 
 # เชื่อมต่อฐานข้อมูล
@@ -340,16 +337,16 @@ def close_cart_modal():
 def clear_cart():
     st.session_state.cart = {}
 
-# --- Database and Storage Functions (ย่อไว้, ใช้โค้ดเดิม) ---
+# --- Database and Storage Functions ---
 
+@st.cache_data(ttl=10)
 def load_menu_data_from_db():
-    @st.cache_data(ttl=10)
-    def fetch_data():
-        response = supabase.from_('menu').select('*').order('id', desc=False).execute()
-        return pd.DataFrame(response.data)
-    return fetch_data()
+    """Fetches menu data from Supabase and caches it for 10 seconds."""
+    response = supabase.from_('menu').select('*').order('id', desc=False).execute()
+    return pd.DataFrame(response.data)
 
 def upload_image_to_storage(uploaded_file):
+    """Uploads file to Supabase Storage and returns the public URL."""
     try:
         file_extension = os.path.splitext(uploaded_file.name)[1]
         file_name = f"{uuid.uuid4()}{file_extension}"
@@ -361,27 +358,38 @@ def upload_image_to_storage(uploaded_file):
         return None
 
 def remove_image_from_storage(image_url):
+    """Removes file from Supabase Storage using its public URL."""
     try:
-        file_name = image_url.split(f"/{BUCKET_NAME}/")[1]
+        path_segments = image_url.split(f"/{BUCKET_NAME}/")
+        if len(path_segments) < 2:
+            st.warning("URL รูปภาพไม่ถูกต้อง ไม่สามารถลบได้")
+            return
+        file_name = path_segments[1].split('?')[0]
         supabase.storage.from_(BUCKET_NAME).remove([file_name])
     except Exception as e:
         st.error(f"ไม่สามารถลบไฟล์รูปภาพได้: {e}")
 
 def add_menu_item_to_db(name, price, category, image_url):
+    """Inserts a new menu item into the database."""
     data = {'name': name, 'price': price, 'category': category, 'image_url': image_url}
     supabase.from_('menu').insert(data).execute()
 
 def update_menu_item_in_db(id, name, price, category, new_image_url, old_image_url):
+    """Updates an existing menu item and handles old image deletion if necessary."""
     data = {'name': name, 'price': price, 'category': category, 'image_url': new_image_url}
+    
     if new_image_url and old_image_url and new_image_url != old_image_url:
         remove_image_from_storage(old_image_url)
+        
     supabase.from_('menu').update(data).eq('id', id).execute()
 
 def delete_menu_item_from_db(id, image_url):
+    """Deletes a menu item and its associated image from storage."""
     remove_image_from_storage(image_url)
     supabase.from_('menu').delete().eq('id', id).execute()
 
 def place_order_to_db(table_number, customer_name, cart):
+    """Inserts a new order into the 'orders' table."""
     order_items = [
         {'name': item['name'], 'quantity': item['quantity'], 'price': item['price']}
         for item in cart.values()
@@ -396,13 +404,16 @@ def place_order_to_db(table_number, customer_name, cart):
     supabase.from_('orders').insert(data).execute()
 
 def load_active_orders():
+    """Fetches new and in-service orders."""
     response = supabase.from_('orders').select('*').in_('status', ['New Order', 'In Service']).order('created_at', desc=False).execute()
     return response.data
 
 def update_order_status(order_id, new_status):
+    """Updates the status of a specific order."""
     supabase.from_('orders').update({'status': new_status}).eq('id', order_id).execute()
 
 def delete_order_from_db(order_id):
+    """Deletes a completed order."""
     supabase.from_('orders').delete().eq('id', order_id).execute()
 
 
@@ -434,7 +445,7 @@ def show_service_login():
                 st.error("ชื่อผู้ใช้หรือรหัสผ่านบริการไม่ถูกต้อง")
 
 
-# --- NEW: Cart Modal/Popup Function (Native Streamlit Container) ---
+# --- Cart Modal/Popup Function ---
 
 def display_cart_modal():
     """Renders the shopping cart content in a simulated modal container."""
@@ -447,7 +458,6 @@ def display_cart_modal():
     with col_title:
         st.subheader("🛒 ตะกร้าสินค้าของคุณ")
     with col_close:
-        # ใช้ปุ่ม Close (x) เพื่อปิด Modal
         if st.button("✖️ ปิด", on_click=close_cart_modal, key="close_modal_btn"):
             pass
             
@@ -459,14 +469,13 @@ def display_cart_modal():
 
     # --- Display and Manage Items in the Cart ---
     st.markdown("### รายการที่สั่งซื้อ")
-    for menu_id, item in list(st.session_state.cart.items()): # Use list() for safe modification
+    for menu_id, item in list(st.session_state.cart.items()): 
         col1, col2, col3, col4 = st.columns([3, 1.5, 1.5, 1])
         
         with col1:
             st.write(f"**{item['name']}**")
         
         with col2:
-            # Quantity control
             new_qty = st.number_input(
                 "จำนวน", 
                 min_value=0, 
@@ -476,7 +485,6 @@ def display_cart_modal():
                 label_visibility="collapsed",
             )
         
-        # Update cart immediately on change 
         if new_qty != item['quantity']:
             if new_qty <= 0:
                 del st.session_state.cart[menu_id]
@@ -489,7 +497,6 @@ def display_cart_modal():
             st.write(f"{item['price'] * item['quantity']:,.0f} ฿")
         
         with col4:
-            # Remove button
             if st.button("🗑️", key=f"modal_remove_{menu_id}", help="ลบรายการ"):
                 del st.session_state.cart[menu_id]
                 st.rerun() 
@@ -530,12 +537,11 @@ def display_cart_modal():
                 except Exception as e:
                     st.error(f"เกิดข้อผิดพลาดในการบันทึกคำสั่งซื้อ: {e}")
 
-# --- App Pages ---
+# --- App Pages (Admin, Service) ---
 
 def show_admin_page():
     st.markdown("<h1 style='text-align: center;'>หน้าจัดการรายการอาหาร (หลังบ้าน)</h1>", unsafe_allow_html=True)
     st.markdown("---")
-
     if st.sidebar.button("ออกจากระบบผู้ดูแล", key="admin_logout_button"):
         st.session_state.admin_logged_in = False
         st.rerun()
@@ -564,6 +570,7 @@ def show_admin_page():
 
     elif choice == "แก้ไข/ลบรายการ":
         st.subheader("แก้ไข/ลบรายการอาหาร")
+        load_menu_data_from_db.clear() 
         df_menu = load_menu_data_from_db()
 
         if df_menu.empty:
@@ -575,7 +582,7 @@ def show_admin_page():
             return
 
         item_names = df_menu['name'].tolist()
-        selected_name = st.selectbox("เลือกรหัส/ชื่ออาหารที่ต้องการแก้ไข", item_names)
+        selected_name = st.selectbox("เลือกรหัส/ชื่ออาหารที่ต้องการแก้ไข", item_names, key="select_item_to_edit")
         
         selected_item = df_menu[df_menu['name'] == selected_name].iloc[0]
 
@@ -698,8 +705,9 @@ def show_service_page():
                 st.rerun() 
             st.markdown("---")
 
+# --- CUSTOMER MENU PAGE (WITH LATEST MOBILE LAYOUT FIX) ---
 def show_menu_page():
-    """Display menu page for customers (with ordering and categories)"""
+    """Display menu page for customers (with ordering and categories), optimized for mobile layout."""
     
     # --- ปุ่มตะกร้าสินค้า (ด้านบนซ้าย) ---
     total_items = sum(item['quantity'] for item in st.session_state.cart.values())
@@ -710,7 +718,6 @@ def show_menu_page():
     col_cart_button, col_title = st.columns([1, 4])
     
     with col_cart_button:
-        # *** ใช้ on_click เพื่อเปิด Modal ***
         if st.button(button_label, key="open_cart_modal", on_click=open_cart_modal):
             pass
 
@@ -721,6 +728,7 @@ def show_menu_page():
         
     st.markdown("---")
 
+    load_menu_data_from_db.clear() 
     df_menu = load_menu_data_from_db()
 
     if df_menu.empty or 'category' not in df_menu.columns:
@@ -740,28 +748,51 @@ def show_menu_page():
     for i, row in df_filtered.iterrows():
         menu_id = row['id']
         
-        # *** โครงสร้าง Layout ใหม่สำหรับมือถือ: [รูปภาพ (1)] | [ชื่อ/ราคา (2.5)] | [จำนวน/ปุ่ม (1.5)] ***
-        col_img, col_text, col_order = st.columns([1, 2.5, 1.5])
+        # *** โครงสร้างคอลัมน์: [รูปภาพ (1.2)] | [ข้อมูลชื่อ/ราคา (2.8)] | [จำนวน/ปุ่ม (1)] ***
+        col_img, col_data, col_order = st.columns([1.2, 2.8, 1]) 
         
         with col_img:
             image_url = row['image_url']
-            # ใช้ HTML/Markdown เพื่อควบคุมขนาดรูปภาพให้พอดี
+            # *** รูปภาพขนาด 150x150 px และจัดกึ่งกลาง ***
             st.markdown(
                 f"""
-                <img src="{image_url}" style="width: 80px; height: 80px; object-fit: cover; border-radius: 5px; margin-top: 10px;">
+                <img src="{image_url}" 
+                     style="width: 150px; 
+                            height: 150px; 
+                            object-fit: cover; 
+                            border-radius: 5px; 
+                            margin-top: 5px; 
+                            display: block; 
+                            margin-left: auto; 
+                            margin-right: auto;"> 
                 """,
                 unsafe_allow_html=True
             )
         
-        with col_text:
-            # ใช้ Markdown เพื่อจัดให้ชิดด้านบน
-            st.markdown(f"**{row['name']}**")
-            st.write(f"ราคา: **{row['price']}** ฿")
-            
+        with col_data:
+            # ใช้ CSS Flexbox จัดชื่อ/ราคา ให้อยู่บรรทัดเดียวกันแต่คนละมุม
+            # *** ปรับ margin-top เป็น 65px เพื่อให้ดูสมดุลกับรูปภาพ 150px และมีระยะห่างด้านล่างมากขึ้น***
+            st.markdown(f"""
+                <div style='
+                    display: flex; 
+                    justify-content: space-between; 
+                    align-items: center; 
+                    margin-top: 35px; 
+                    padding-right: 20px; 
+                '>
+                    <p style='margin: 0; font-size: 1.1em;'><b>{row['name']}</b></p>
+                    <p style='margin: 0; color: #4CAF50;'>Price: <b>{row['price']}</b> ฿</p>
+                </div>
+            """, unsafe_allow_html=True)
+
+
         with col_order:
             current_quantity = st.session_state.cart.get(menu_id, {}).get('quantity', 0)
             quantity_key = f"qty_{menu_id}_{selected_category}"
             
+            # *** เพิ่มช่องว่างด้านบนช่องใส่จำนวน เพื่อดันมันลงมาให้ตรงแนวกับชื่อ/ราคา ***
+            st.markdown("<div style='margin-top: 30px;'></div>", unsafe_allow_html=True)
+
             # Number Input (จำนวน)
             quantity = st.number_input(
                 "จำนวน:", 
@@ -769,7 +800,7 @@ def show_menu_page():
                 value=current_quantity, 
                 step=1, 
                 key=quantity_key, 
-                label_visibility="collapsed" # ซ่อน Label
+                label_visibility="collapsed"
             )
             
             # จัดการ Session State เมื่อจำนวนเปลี่ยน
@@ -788,7 +819,7 @@ def show_menu_page():
         st.divider() 
 
 
-# --- Main App Logic ---
+# --- Main App Logic (Navigation and Modal Rendering) ---
 
 # 1. Sidebar Control
 st.sidebar.title("ควบคุมระบบ")
@@ -797,7 +828,6 @@ st.sidebar.markdown("---")
 page = st.sidebar.radio("เลือกหน้า", ["หน้าเมนู (ลูกค้า)", "หน้าผู้ดูแล (Admin)", "หน้าบริการ (Service)"], index=0) 
 
 # 2. Main Content Placeholder
-# *สร้าง Placeholder สำหรับ Modal ที่จะซ้อนทับเนื้อหาหลัก*
 modal_placeholder = st.empty()
 app_content = st.container()
 
@@ -820,40 +850,37 @@ with app_content:
 
 
 # 4. Logic การแสดง Modal
-# ถ้า show_cart_modal เป็น True ให้วาด Modal ทับเนื้อหา app_content
 if st.session_state.show_cart_modal:
-    # เพิ่ม CSS เพื่อทำให้ Container มีลักษณะเป็น Modal
+    # เพิ่ม CSS สำหรับ Modal
     st.markdown("""
     <style>
-    /* ซ่อนเนื้อหาหลักเมื่อ Modal เปิด เพื่อให้ Modal ดูโดดเด่น */
-    /* การซ่อนทำได้ยากใน Streamlit โดยไม่ใช้ Component ภายนอก เราจึงใช้ Container */
-    
+    /* ซ่อนเนื้อหาหลัก */
+    .stApp {
+        background-color: rgba(0, 0, 0, 0.5); 
+        pointer-events: none; 
+    }
+    /* สไตล์สำหรับ Modal Container */
     .modal-container {
         position: fixed; 
         top: 50%; 
         left: 50%; 
         transform: translate(-50%, -50%); 
         max-width: 600px;
-        min-width: 80%; /* สำหรับมือถือ */
+        min-width: 80%; 
         padding: 20px;
         border-radius: 10px;
-        background-color: white; 
+        background-color: #0e1117; 
         box-shadow: 0 4px 8px rgba(0,0,0,0.5);
         z-index: 9999; 
-        max-height: 90vh; /* จำกัดความสูงของ Modal */
+        max-height: 90vh; 
         overflow-y: auto;
-    }
-    
-    /* สไตล์สำหรับพื้นหลังทึบ (Overlay) */
-    .st-emotion-cache-18ni7ap { /* target the main app container for overlay */
-        pointer-events: none; /* Disable interaction with background */
+        pointer-events: all; 
     }
     </style>
     """, unsafe_allow_html=True)
     
-    # วาด Modal ใน Placeholder โดยใช้ Container
+    # วาด Modal ใน Placeholder 
     with modal_placeholder.container():
-        # ใช้มาร์คดาวน์เพื่อสร้าง Container ที่มีสไตล์ Modal
         st.markdown('<div class="modal-container">', unsafe_allow_html=True)
         display_cart_modal()
         st.markdown('</div>', unsafe_allow_html=True)
